@@ -1,0 +1,52 @@
+PART ONE: CROP MASK FOR MAIZE AND OTHER CROPS.
+
+# Create a list of short-season and long-season images
+short_season_images = [short_season_2018, short_season_2019, short_season_2020, short_season_2021, short_season_2022]
+long_season_images = [long_season_2018, long_season_2019, long_season_2020, long_season_2021, long_season_2022]
+combined_season_images = [combined_season_2018, combined_season_2019, combined_season_2020, combined_season_2021, combined_season_2022]
+
+# Create a list of year values
+years = [2018, 2019, 2020, 2021, 2022]
+
+# Function to create a cropped and masked image
+def crop_and_mask(image, mask):
+    return image.updateMask(mask).clip(cropland)
+
+# Initialize lists to store the crop land images
+maize_short_season_land = []
+maize_long_season_land = []
+maize_combined_season_land = []
+others_short_season_land = []
+others_long_season_land = []
+others_combined_season_land = []
+
+# Loop through each year and create the cropped and masked images for each crop land
+for i, year in enumerate(years):
+    maize_short_season_land.append(crop_and_mask(short_season_images[i], maize_mask))
+    maize_long_season_land.append(crop_and_mask(long_season_images[i], maize_mask))
+    maize_combined_season_land.append(crop_and_mask(combined_season_images[i], maize_mask))
+    others_short_season_land.append(crop_and_mask(short_season_images[i], others_mask))
+    others_long_season_land.append(crop_and_mask(long_season_images[i], others_mask))
+    others_combined_season_land.append(crop_and_mask(combined_season_images[i], others_mask))
+
+
+
+
+PART TWO: MAIZE YIELD
+
+# Function to calculate yield for each pixel
+def calculateYield(image):
+    biomass = image.select('Biomass')
+    yield_image = biomass.multiply(HI).rename('Yield')
+    return image.addBands(yield_image)
+
+# Calculate yield for short season for each year
+short_season_yield_years = [short_season_biomass_clipped_years[i].map(calculateYield) for i in range(len(years))]
+
+# Calculate yield for long season for each year
+long_season_yield_years = [long_season_biomass_clipped_years[i].map(calculateYield) for i in range(len(years))]
+
+# Calculate yield for combined season for each year
+combined_season_yield_years = [combined_season_biomass_clipped_years[i].map(calculateYield) for i in range(len(years))]
+
+Write a code that take crop mask for maize from part one and mask yield from part two for same season and each year. Export new generated yield to drive for both short, long, and combined season. Main region of intrest is defined as cropland = ee.FeatureCollection("")

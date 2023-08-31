@@ -1,0 +1,120 @@
+
+// Load the bounding box shapefile
+var boundingBox = ee.FeatureCollection('projects/project5yr/assets/BoundBox');
+
+var aoi =ee.FeatureCollection('projects/project5yr/assets/BoundBox');
+var bura = ee.FeatureCollection('projects/project5yr/assets/BuraStudyArea')
+var cropland = ee.FeatureCollection('projects/project5yr/assets/Croplands')
+
+// cloud mask function
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+var Sentinel2 = ee.ImageCollection('COPERNICUS/S2_SR')
+                  .filterDate('2018-05-01', '2022-12-30')
+                  // Pre-filter to get less cloudy granules.
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',4))
+                  .map(maskS2clouds);
+
+var S2image = Sentinel2.median().clip(aoi)
+var rgbvis = {
+  min: 0.0,
+  max: 0.3,
+  bands: ['B4', 'B3', 'B2'],
+};
+
+Map.centerObject(aoi,  10);
+Map.addLayer(S2image, rgbvis, 'RGB');
+// Map.addLayer(trainsample, {}, 'trainsample')
+var trainsample = Bareland.merge(Water).merge(Others).merge(TreeCover).merge(BuiltUp).merge(Maize).merge(Grassland)
+//Map.addLayer(trainsample, {}, 'trainsample')
+//==========================================
+
+// var exportOptions = {
+//   collection: trainsample,
+//   description: 'Bura_Training_Samples',
+//   fileFormat: 'GEO_JSON',
+//   folder: 'ProjectOutputs'
+// };
+
+// // Export the merged collection
+// Export.table.toDrive(exportOptions);
+
+//----------------------------------------------------------------------------------///
+
+
+// Define the indices calculation function
+function calculateIndices(image) {
+  var evi = image.expression('2.5 * ((NIR - Red) / (NIR + 6 * Red - 7.5 * Blue + 1))', {
+    'NIR': image.select('B8'),
+    'Red': image.select('B4'),
+    'Blue': image.select('B2')
+  }).rename('EVI');
+
+  var ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
+  var gndvi = image.normalizedDifference(['B8', 'B3']).rename('GNDVI');
+  var simpleRatio = image.select('B8').divide(image.select('B4')).rename('SimpleRatio');
+  var ndwi = image.normalizedDifference(['B3', 'B8']).rename('NDWI');
+
+  return image.addBands([evi, ndvi, gndvi, simpleRatio, ndwi]);
+}
+
+// Calculate indices and add them as bands to the image
+var S2imageWithIndices = calculateIndices(S2image);
+
+// Train random forest model based on the training sample classes
+var bands = ['B2', 'B3', 'B4', 'B8', 'EVI', 'NDVI', 'GNDVI', 'SimpleRatio', 'NDWI'];
+var trainingData = S2imageWithIndices.sampleRegions({
+  collection: trainsample,
+  properties: ['Class'],
+  scale: 10
+});
+
+var classifier = ee.Classifier.smileRandomForest(10).train({
+  features: trainingData,
+  classProperty: 'Class',
+  inputProperties: bands
+});
+
+// Generate a model function that applies the trained Random Forest model to an image
+var applyModel = function (image) {
+  var classified = image.classify(classifier);
+  return classified.rename('class');
+};
+
+// Classify the whole image bound by the aoi variable
+var classifiedImage = applyModel(S2imageWithIndices);
+
+
+//clip to Bura scheme
+var classifiedBura = classifiedImage.clip(bura)
+
+// Display the classified image
+//Map.addLayer(classifiedBura, { min: 0, max: 6, palette: ['brown', 'cyan', 'blue', 'green', 'yellow', 'red', 'gray'] }, 'Classification');
+//============================
+
+//=============================================================================//
+
+// Export the classified image to Google Drive
+// Export.image.toDrive({
+//   image: classifiedImage,
+//   description: 'Bura_classified',
+//   folder: 'ProjectOutputs',
+//   scale: 10, 
+//   region: bura.geometry(),
+//   maxPixels: 1e13
+// });
+
+//============================================================================//
+
